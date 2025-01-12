@@ -105,7 +105,7 @@ end
 min_rows = min(cellfun(@(x) size(x, 1), sigs)); % Smallest row count
 disp(['Smallest number of rows 222: ', num2str(min_rows)]);
 
-for i = 1:numel(sigs)
+for i = 1:88
     sigs{i} = sigs{i}(1:min_rows, :); % Change each array to 119520 length
 end
 
@@ -115,34 +115,47 @@ end
 fs = 500; % Sampling frequency (Hz)
 
 % Artifact detection parameters
-amplitude_threshold = 100; % µV (example threshold for EEG)
+amplitude_threshold = 30000; % µV (example threshold for EEG)
 gradient_threshold = 50; % Threshold for sharp transitions
 
 % Initialize cell arrays for clean signals and artifact indices
 clean_signals = cell(1, 88);
 artifact_indices = cell(1, 88);
 
+
 % Loop through each signal
 for i = 1:88
-    signal = sigs{i}(1, :); % Extract the current signal
+    for j = 1:8
+        signal = sigs{i}(:, j); % Extract the current signal
     
-    % 1. Amplitude-based artifact detection
-    high_amplitude_idx = abs(signal) > amplitude_threshold;
+        % 1. Amplitude-based artifact detection
+        high_amplitude_idx = abs(signal) > amplitude_threshold;
+        %disp(round(abs(signal)/100)); 
+        %disp(round(amplitude_threshold));
+        %disp(round(abs(signal)) > amplitude_threshold); % Should return [0, 1, 1, 1, 1]
+        num_artifacts = sum(high_amplitude_idx); % Returns the count of `true` values
+        disp(num_artifacts);
     
-    % 2. Gradient-based artifact detection
-    gradient_signal = diff(signal); % First derivative
-    high_gradient_idx = abs(gradient_signal) > gradient_threshold;
+        % 2. Gradient-based artifact detection
+        gradient_signal = diff(signal); % First derivative
+        high_gradient_idx = abs(gradient_signal) > gradient_threshold;
+        disp(['diff:', sum(high_amplitude_idx)]);
     
-    % Combine artifact indices
-    artifact_idx = high_amplitude_idx | [high_gradient_idx, false]; % Align sizes
+        % Combine artifact indices
+        %artifact_idx = high_amplitude_idx | [high_gradient_idx(:)', false]; % Ensure row vector
     
-    % Optional: Remove or mark artifacts
-    clean_signal = signal;
-    clean_signal(artifact_idx) = NaN; % Replace artifacts with NaNs
+        % Optional: Remove or mark artifacts
+        clean_signal(:, j) = signal;
+        clean_signal(high_amplitude_idx, j) = 0;
+        clean_signal(high_gradient_idx, j) = 0;% Replace artifacts with NaNs
+        %disp(clean_signal);
     
-    % Store results
+        % Store results
+        %clean_signals{i} = clean_signal; % Store the cleaned signal
+        %artifact_indices{i} = find(artifact_idx); % Store artifact locations
+        %disp(artifact_indices);
+    end
     clean_signals{i} = clean_signal; % Store the cleaned signal
-    artifact_indices{i} = find(artifact_idx); % Store artifact locations
 end
 
 % Display results
@@ -159,11 +172,34 @@ bands = {
     'Gamma', [30 100];
 };
 
+t = 1:min_rows
+% Preallocate storage for filtered signals
+filtered_signals = struct();
 
-for i = 1:numel(sigs)
-    sigs{i} = sigs{i}(1:min_rows, :); % Change each array to 119520 length
+for i = 1:size(bands, 1)
+    band_name = bands{i, 1};
+    freq_range = bands{i, 2};
+    
+    % Design a bandpass Butterworth filter
+    [b, a] = butter(4, freq_range / (fs / 2), 'bandpass'); % Normalize by Nyquist frequency
+    
+    % Apply the filter
+    filtered_signals.(band_name) = filtfilt(b, a, sigs{1}(:, 1));
 end
 
-[b, a] = butter(4, [0.5 50] / (fs / 2), 'bandpass'); % 0.5 to 50 Hz
-eeg_filtered = filtfilt(b, a, eeg_raw); % Apply the filter
+% Plot the original and filtered signals
+figure;
+subplot(6, 1, 1);
+plot(t, sigs{1}(:, 1));
+title('Original EEG Signal');
+xlabel('Time (s)');
+ylabel('Amplitude');
+
+for i = 1:size(bands, 1)
+    subplot(6, 1, i+1);
+    plot(t, filtered_signals.(bands{i, 1}));
+    title([bands{i, 1}, ' Band']);
+    xlabel('Time (s)');
+    ylabel('Amplitude');
+end
 
