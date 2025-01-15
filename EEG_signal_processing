@@ -115,45 +115,46 @@ end
 fs = 500; % Sampling frequency (Hz)
 
 % Artifact detection parameters
-amplitude_threshold = 30000; % µV (example threshold for EEG)
-gradient_threshold = 50; % Threshold for sharp transitions
+amplitude_threshold = 37000; % µV (example threshold for EEG)
+gradient_threshold = 80; % Threshold for sharp transitions
 
 % Initialize cell arrays for clean signals and artifact indices
 clean_signals = cell(1, 88);
-artifact_indices = cell(1, 88);
+num_ar = zeros(88, 17); % 88 rows, 17 columns
+num_ar_diff = zeros(88, 17); % 88 rows, 17 columns
 
-
-% Loop through each signal
 for i = 1:88
     for j = 1:8
         signal = sigs{i}(:, j); % Extract the current signal
     
         % 1. Amplitude-based artifact detection
-        high_amplitude_idx = abs(signal) > amplitude_threshold;
-        %disp(round(abs(signal)/100)); 
-        %disp(round(amplitude_threshold));
-        %disp(round(abs(signal)) > amplitude_threshold); % Should return [0, 1, 1, 1, 1]
-        num_artifacts = sum(high_amplitude_idx); % Returns the count of `true` values
-        disp(num_artifacts);
+        high_amplitude_idx = find(abs(signal) > amplitude_threshold); % Get valid indices
+        num_artifacts = length(high_amplitude_idx); % Number of artifacts
+        num_ar(i, j) = num_artifacts;
     
         % 2. Gradient-based artifact detection
         gradient_signal = diff(signal); % First derivative
-        high_gradient_idx = abs(gradient_signal) > gradient_threshold;
-        disp(['diff:', sum(high_amplitude_idx)]);
-    
+        high_gradient_idx = find(abs(gradient_signal) > gradient_threshold); % Get valid indices
+        num_ar(i, j + 9) = length(high_gradient_idx);
+ 
         % Combine artifact indices
-        %artifact_idx = high_amplitude_idx | [high_gradient_idx(:)', false]; % Ensure row vector
-    
+        artifact_idx = unique([high_amplitude_idx; high_gradient_idx]); % Combine unique indices
+
         % Optional: Remove or mark artifacts
         clean_signal(:, j) = signal;
-        clean_signal(high_amplitude_idx, j) = 0;
-        clean_signal(high_gradient_idx, j) = 0;% Replace artifacts with NaNs
-        %disp(clean_signal);
-    
-        % Store results
-        %clean_signals{i} = clean_signal; % Store the cleaned signal
-        %artifact_indices{i} = find(artifact_idx); % Store artifact locations
-        %disp(artifact_indices);
+        for idx = artifact_idx'
+            % Check for out-of-bounds indices
+            if idx > 1 && idx < length(signal)
+                % Replace with the average of the neighbors
+                clean_signal(idx, j) = mean([clean_signal(idx - 1, j), clean_signal(idx + 1, j)]);
+            elseif idx == 1
+                % Handle the first element
+                clean_signal(idx, j) = clean_signal(idx + 1, j);
+            elseif idx == length(signal)
+                % Handle the last element
+                clean_signal(idx, j) = clean_signal(idx - 1, j);
+            end
+        end
     end
     clean_signals{i} = clean_signal; % Store the cleaned signal
 end
@@ -172,7 +173,7 @@ bands = {
     'Gamma', [30 100];
 };
 
-t = 1:min_rows
+t = 1:min_rows;
 % Preallocate storage for filtered signals
 filtered_signals = cell(88*5, 9);
 r = 0
@@ -189,14 +190,14 @@ for k = 1:88
     
             % Apply the filter
             filtered_signals{i + r, 1} = bands{i, 1};
-            filtered_signals{i + r, j+1} = filtfilt(b, a, sigs{k}(:, j));
+            filtered_signals{i + r, j+1} = filtfilt(b, a, clean_signals{k}(:, j));
         end
     end
     r = r + 5;
 end
 
-sig_corr = cell(44*5, 9)
-p = 0
+sig_corr = cell(44*5, 9);
+p = 0;
 
 for k = 1:220
     c = k + p*5;
@@ -205,11 +206,11 @@ for k = 1:220
         sig_corr{k, j} = corr(filtered_signals{c, j}, filtered_signals{c + 5, j});
     end
     if mod(c, 5) == 0
-        p = p + 1
+        p = p + 1;
     end
 end
 
-
+%METADATA WAVE NAMES
 for k = 1:220
     sig_corr{k, 1} = filtered_signals{k, 1};
 end
@@ -218,3 +219,4 @@ writecell(sig_corr, 'correlations_array.csv');
 
 % Check the current folder for 'output.csv'
 disp('Cell array written to correlations_array.csv');
+
